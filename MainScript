@@ -1,0 +1,123 @@
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+local IgnoreList = {}
+local FlickDebounce = false
+local Flicking = false
+
+local function GetVerticalStackedParts(dataInstances)
+    local gatheredData = {}
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, workspace.CurrentCamera}
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+    
+    for _, mainData in ipairs(dataInstances) do
+        local partSize = mainData.Size
+        local halfHeight = partSize.Y / 2
+        local origin = mainData.Position - Vector3.new(0, halfHeight, 0)
+        local direction = Vector3.new(0, partSize.Y + 3, 0)
+        local result = workspace:Raycast(origin, direction, raycastParams)
+        
+        if result and not table.find(gatheredData, mainData) then
+            table.insert(gatheredData, mainData)
+        end
+    end
+    
+    for _, mainData in ipairs(dataInstances) do
+        local partSize = mainData.Size
+        local halfHeight = partSize.Y / 2
+        local origin = mainData.Position + Vector3.new(0, halfHeight, 0)
+        local direction = Vector3.new(0, -(partSize.Y + 3), 0)
+
+        local result = workspace:Raycast(origin, direction, raycastParams)
+        
+        if result and not table.find(gatheredData, mainData) then
+            table.insert(gatheredData, mainData)
+        end
+    end
+
+    for i = #gatheredData, 1, -1 do
+        local removeData = gatheredData[i]
+        if removeData.Transparency == 1 or not removeData.CanCollide then
+            table.remove(gatheredData, i)
+        end
+    end
+    
+    return #gatheredData
+end
+
+local function CheckSplitParts(root, humanoid)
+    local size = Vector3.new(5, 4, 5)
+    local centerCFrame = root.CFrame
+    local halfSize = size / 2
+    
+    local corner1 = (centerCFrame * CFrame.new(-halfSize)).Position
+    local corner2 = (centerCFrame * CFrame.new(halfSize)).Position
+    local region = Region3.new(
+        Vector3.new(math.min(corner1.X, corner2.X), math.min(corner1.Y, corner2.Y), math.min(corner1.Z, corner2.Z)),
+        Vector3.new(math.max(corner1.X, corner2.X), math.max(corner1.Y, corner2.Y), math.max(corner1.Z, corner2.Z))
+    )
+
+    IgnoreList = {}
+    for _, player in pairs(Players:GetPlayers()) do
+        table.insert(IgnoreList, player.Character)
+    end
+    
+    local partsInRegion = workspace:FindPartsInRegion3WithIgnoreList(region, IgnoreList, math.huge)
+    local numberOfParts = GetVerticalStackedParts(partsInRegion)
+    
+    if numberOfParts > 1 and not humanoid.Jump then
+        FlickDebounce = true
+        humanoid.AutoRotate = false
+        root.CFrame = root.CFrame * CFrame.new(0, 1.5, 2.5)
+        task.wait()
+        humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        task.delay(0.3, function()
+            humanoid.AutoRotate = true
+            FlickDebounce = false
+        end)
+        
+        local anim = Instance.new("Animation")
+        if humanoid.RigType == Enum.HumanoidRigType.R6 then
+            anim.AnimationId = "rbxassetid://188632011"
+        elseif humanoid.RigType == Enum.HumanoidRigType.R15 then
+            anim.AnimationId = "rbxassetid://754658275"
+        end
+        
+        local track = humanoid:LoadAnimation(anim)
+        track:Play()
+        task.wait(0.15)
+        track:AdjustSpeed(-2.5)
+        task.wait(0.14)
+        track:Stop()
+    end
+    
+    IgnoreList = {}
+end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
+    if gameProcessedEvent then return end
+    
+    if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.E and not FlickDebounce then
+        local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
+        
+        if root and humanoid then
+            Flicking = true
+            coroutine.wrap(function()
+                while Flicking and task.wait() do
+                    CheckSplitParts(root, humanoid)
+                end
+            end)()
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gameProcessedEvent)
+    if gameProcessedEvent then return end
+    
+    if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.E then
+        Flicking = false
+    end
+end)
